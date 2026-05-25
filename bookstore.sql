@@ -456,4 +456,183 @@ AS
     c.last_name;
 GO
 
+-- This stored procedure moves books between stores in an integrity-safe way.
+-- It validates that the quantity is positive, that the source and destination
+-- stores are different, and that the source store has enough stock before
+-- moving anything. The stock updates are wrapped in a transaction so that
+-- either both stores are updated, or no changes are saved. Foreign key
+-- constraints ensure that stock rows can only refer to existing stores and books.
+
+-- Stored procedure for moving books between stores.
+-- This procedure protects data integrity by validating the input before moving stock.
+-- It checks that both stores and the book exist, that the quantity is positive,
+-- that the source and destination stores are different, and that the source store
+-- has enough copies available.
+-- The updates are wrapped in a transaction so either both stock changes are saved,
+-- or no stock changes are saved if an error occurs.
+
+CREATE OR ALTER PROCEDURE MoveBook
+    @from_store_id INT,
+    @to_store_id INT,
+    @isbn13 CHAR(13),
+    @quantity INT = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @quantity <= 0
+    BEGIN
+        RAISERROR('Quantity must be greater than zero.', 16, 1);
+        RETURN;
+    END;
+
+    IF @from_store_id = @to_store_id
+    BEGIN
+        RAISERROR('Source store and destination store must be different.', 16, 1);
+        RETURN;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+    FROM Stores
+    WHERE id = @from_store_id
+    )
+    BEGIN
+        RAISERROR('Source store does not exist.', 16, 1);
+        RETURN;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+    FROM Stores
+    WHERE id = @to_store_id
+    )
+    BEGIN
+        RAISERROR('Destination store does not exist.', 16, 1);
+        RETURN;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+    FROM Books
+    WHERE isbn13 = @isbn13
+    )
+    BEGIN
+        RAISERROR('Book does not exist.', 16, 1);
+        RETURN;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+    FROM StockBalances
+    WHERE store_id = @from_store_id
+        AND isbn13 = @isbn13
+    )
+    BEGIN
+        RAISERROR('Source store does not have this book in stock.', 16, 1);
+        RETURN;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+    FROM StockBalances
+    WHERE store_id = @from_store_id
+        AND isbn13 = @isbn13
+        AND quantity >= @quantity
+    )
+    BEGIN
+        RAISERROR('Source store does not have enough copies available.', 16, 1);
+        RETURN;
+    END;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        UPDATE StockBalances
+        SET quantity = quantity - @quantity
+        WHERE store_id = @from_store_id
+        AND isbn13 = @isbn13;
+
+        IF EXISTS (
+            SELECT 1
+    FROM StockBalances
+    WHERE store_id = @to_store_id
+        AND isbn13 = @isbn13
+        )
+        BEGIN
+        UPDATE StockBalances
+            SET quantity = quantity + @quantity
+            WHERE store_id = @to_store_id
+            AND isbn13 = @isbn13;
+    END
+        ELSE
+        BEGIN
+        INSERT INTO StockBalances
+            (
+            store_id,
+            isbn13,
+            quantity
+            )
+        VALUES
+            (
+                @to_store_id,
+                @isbn13,
+                @quantity
+            );
+    END;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+        BEGIN
+        ROLLBACK TRANSACTION;
+    END;
+
+        DECLARE @error_message NVARCHAR(4000);
+        DECLARE @error_severity INT;
+        DECLARE @error_state INT;
+
+        SELECT
+        @error_message = ERROR_MESSAGE(),
+        @error_severity = ERROR_SEVERITY(),
+        @error_state = ERROR_STATE();
+
+        RAISERROR(@error_message, @error_severity, @error_state);
+    END CATCH;
+END;
+
+
+SELECT
+    s.store_name,
+    b.title,
+    sb.quantity
+FROM StockBalances AS sb
+    JOIN Stores AS s
+    ON sb.store_id = s.id
+    JOIN Books AS b
+    ON sb.isbn13 = b.isbn13
+WHERE b.isbn13 = '9781400033416'
+ORDER BY s.id;
+GO
+
+EXEC MoveBook
+    @from_store_id = 1,
+    @to_store_id = 2,
+    @isbn13 = '9781400033416',
+    @quantity = 2;
+GO
+
+SELECT
+    s.store_name,
+    b.title,
+    sb.quantity
+FROM StockBalances AS sb
+    JOIN Stores AS s
+    ON sb.store_id = s.id
+    JOIN Books AS b
+    ON sb.isbn13 = b.isbn13
+WHERE b.isbn13 = '9781400033416'
+ORDER BY s.id;
+GO
 
