@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 
+import pandas as pd
+
 server_name = "localhost"
 database_name = "BookstoreLab2"
 user_name = "bookstore_reader_login"
@@ -27,10 +29,10 @@ engine = create_engine(url)
 def search_books(search_term: str) -> None:
     query = text("""
         SELECT
-            b.title,
-            b.isbn13,
-            s.store_name,
-            sb.quantity
+            b.title AS [Title],
+            b.isbn13 AS [ISBN13],
+            s.store_name AS [Store],
+            sb.quantity AS [Copies]
         FROM Books AS b
             JOIN StockBalances AS sb
                 ON b.isbn13 = sb.isbn13
@@ -44,23 +46,27 @@ def search_books(search_term: str) -> None:
 
     try:
         with engine.connect() as connection:
-            result = connection.execute(query, {"search_term": f"%{search_term}%"})
+            df = pd.read_sql_query(
+                query, connection, params={"search_term": f"%{search_term}%"}
+            )
 
-            rows = result.fetchall()
-
-            if not rows:
+            if df.empty:
                 print("No matching books found.")
                 return
 
-            current_book = None
+        # pivot table for a prettier df
+        stock_table = df.pivot_table(
+            index=["Title", "ISBN13"], columns="Store", values="Copies", fill_value=0
+        ).reset_index()
 
-            for row in rows:
-                if row.title != current_book:
-                    current_book = row.title
-                    print(f"\n{row.title}")
-                    print(f"ISBN13: {row.isbn13}")
+        stock_table.columns.name = None
 
-                print(f"  {row.store_name}: {row.quantity} copies")
+        store_columns = stock_table.columns.drop(["Title", "ISBN13"])
+        stock_table[store_columns] = stock_table[store_columns].astype(
+            int
+        )  # cast stock count to ints instead of floats
+
+        print(stock_table.to_string(index=False))
 
     except SQLAlchemyError as error:
         print("Database error:")

@@ -456,12 +456,6 @@ AS
     c.last_name;
 GO
 
--- This stored procedure moves books between stores in an integrity-safe way.
--- It validates that the quantity is positive, that the source and destination
--- stores are different, and that the source store has enough stock before
--- moving anything. The stock updates are wrapped in a transaction so that
--- either both stores are updated, or no changes are saved. Foreign key
--- constraints ensure that stock rows can only refer to existing stores and books.
 
 -- Stored procedure for moving books between stores.
 -- This procedure protects data integrity by validating the input before moving stock.
@@ -637,6 +631,11 @@ ORDER BY s.id;
 GO
 
 -- Setup user for book search in python
+
+-- In an actual production environment I wouldn't commit login details to git!
+
+CREATE LOGIN bookstore_reader_login
+WITH PASSWORD = 'StrongPassword123!';
 USE master;
 GO
 
@@ -655,4 +654,10 @@ GRANT SELECT ON Books TO bookstore_reader_user;
 GRANT SELECT ON StockBalances TO bookstore_reader_user;
 GRANT SELECT ON Stores TO bookstore_reader_user;
 GO
+
+-- Backup
+BACKUP DATABASE BookstoreLab2
+TO DISK = '/var/opt/mssql/backup/AnnMathenge.bak'
+WITH FORMAT;
+
 
