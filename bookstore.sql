@@ -617,10 +617,10 @@ ORDER BY s.id;
 GO
 
 EXEC MoveBook
-    @from_store_id = 1,
-    @to_store_id = 2,
+    @from_store_id = 2,
+    @to_store_id = 3,
     @isbn13 = '9781400033416',
-    @quantity = 2;
+    @quantity = 1;
 GO
 
 SELECT
@@ -634,5 +634,25 @@ FROM StockBalances AS sb
     ON sb.isbn13 = b.isbn13
 WHERE b.isbn13 = '9781400033416'
 ORDER BY s.id;
+GO
+
+-- Setup user for book search in python
+USE master;
+GO
+
+CREATE LOGIN bookstore_reader_login
+WITH PASSWORD = 'StrongPassword123!';
+GO
+
+USE BookstoreLab2;
+GO
+
+CREATE USER bookstore_reader_user
+FOR LOGIN bookstore_reader_login;
+GO
+
+GRANT SELECT ON Books TO bookstore_reader_user;
+GRANT SELECT ON StockBalances TO bookstore_reader_user;
+GRANT SELECT ON Stores TO bookstore_reader_user;
 GO
 
